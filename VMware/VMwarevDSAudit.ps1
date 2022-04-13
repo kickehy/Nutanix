@@ -103,7 +103,7 @@
     The following Generic Credential is expected: vCenter_Creds
 .PARAMETER vcusername
     Specifies the username that will be used to authenticate against vCenter.
-    Must use single quotes when specifying otherwise you may have unexpected results: -vcusername 'Pa$$w0rd'
+    Must use single quotes when specifying otherwise you may have unexpected results: -vcusername 'username@domain.com'
     Alias: -vcu
 .PARAMETER vcpwd
     Specifies the password that will be used to authenticate against vCenter.
@@ -158,6 +158,12 @@ if ($null -eq (Get-InstalledModule -Name "ImportExcel" -ErrorAction SilentlyCont
     Write-Warning "Required module 'ImportExcel' is missing. Please install."
     $missingmodule = 1
 }
+if ($credman -eq $true) {
+    if ($null -eq (Get-InstalledModule -Name "CredentialManager" -ErrorAction SilentlyContinue)) {
+        Write-Warning "Required module 'CredentialManager' is missing. Please install."
+        $missingmodule = 1
+    }
+}
 if ($missingmodule -eq 1) {
     Write-Error "Exiting script due to missing modules..."
     Exit
@@ -165,6 +171,9 @@ if ($missingmodule -eq 1) {
 # Import required modules if all modules are installed
 Import-Module VMware.PowerCLI | Out-Null
 Import-Module ImportExcel
+if ($credman -eq $true) {
+    Import-Module CredentialManager
+}
 ############################## End Region - Modules ##############################
 ##################################################################################
 
@@ -186,6 +195,7 @@ if ($filepath -notmatch '\\$') {
 
 ##################################################################################
 ############################## Region - Credentials ##############################
+# Pull credentials from Windows Credential Manager if -credman is specified, and verify they exist and are not blank
 if ($credman -eq $true) {
     # Set vCenter username and password
     $vCenterCreds = Get-StoredCredential -Target 'vCenter_Creds'
@@ -200,6 +210,7 @@ if ($credman -eq $true) {
         Exit
     }
 } else {
+    # Create vCenter credential object
     $secVCpwd = ConvertTo-SecureString $vcpwd -AsPlainText -Force
     $vCenterCreds = New-Object System.Management.Automation.PSCredential ($vcusername, $secVCpwd)
 }
