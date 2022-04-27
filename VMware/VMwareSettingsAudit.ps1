@@ -111,7 +111,7 @@
     Alias: -pu
 .PARAMETER prismpwd
     Specifies the password that will be used to authenticate against both Prism Central and Prism Element.
-    Must use single quotes when specifying otherwise you may have unexpected results: -vcpwd 'Pa$$w0rd'
+    Must use single quotes when specifying otherwise you may have unexpected results: -prismpwd 'Pa$$w0rd'
     Alias: -pp
 .PARAMETER filepath
     Specifies report location for the script.
