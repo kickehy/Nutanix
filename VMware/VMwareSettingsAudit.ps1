@@ -90,7 +90,7 @@
         VM Monitoring
 .PARAMETER pclist
     List of Prism Centrals, comma separated, to run the script against.
-    Ex. -pclist vc1.domain.com,vc2.domain.com,10.10.10.10
+    Ex. -pclist pc1.domain.com,pc2.domain.com,10.10.10.10
     Alias: -pcl
 .PARAMETER credman
     This will cause the script to look for credentials to be supplied via Windows Credential Manager.
