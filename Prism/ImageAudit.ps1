@@ -294,7 +294,7 @@ function peInfo ($peip) {
 
     # Invoke REST method for PE info
     $uriPE = "https://" + $peip + ":9440/PrismGateway/services/rest/v2.0/cluster"
-    $resultPEInfo = (Invoke-RestMethod -Uri $uriPE -Headers $headers -Method GET -ContentType 'application/json' -TimeoutSec 60)
+    $resultPEInfo = (Invoke-RestMethod -Uri $uriPE -Headers $headers -Method GET -ContentType 'application/json' -TimeoutSec 120)
     Return $resultPEInfo
 }
 function peStrgList ($peip) {
@@ -316,80 +316,90 @@ function peStrgList ($peip) {
     Return $resultStrgList
 }
 function getImageInfo ($pe) {
-    Write-Host "Gathering image information for $($pe)" -ForegroundColor Cyan
-        # Get cluster info so we can pull the name
+        # Get cluster info so we can pull the name and check to see if the cluster is AHV or VMware
         $cluInfo = peInfo $pe
-        $cluName = $cluInfo.name
-        # Get cluster storage container list for comparison
-        $strgList = peStrgList $pe
-        # Get registered PC, if there is one
-        try {
-            $pcReg = peRegisteredPC $pe
-            $pcRegUuid = $pcReg.clusterUuid
-            $pcRegName = $pcReg.clusterDetails.clusterName
-        } catch {
-            $pcRegUuid = ""
-            $pcRegName = ""
+        $hypAHV = $false
+        foreach ($hyp in $cluInfo.hypervisor_types) {
+            if ($hyp -eq "kKvm") {
+                $hypAHV = $true
+            }
         }
-        # Get list of images on the cluster
-        $imageList = peImageList $pe
-        # Get image owner list, to see if PC owns the image or local PE
-        $imageOwnerList = peImageOwnerList $pe
-        # Cycle through each image and check to see if it was pushed from PC and build object to write to report
-        foreach ($image in $imageList.entities) {
-            # Container section
-            $iscontainer = $false
-            foreach ($container in $strgList.entities) {
-                if ($container.storage_container_uuid -eq $image.storage_container_uuid) {
-                    $imgStrgName = $container.name
-                    $iscontainer = $true
+        if ($hypAHV -eq $true) {
+            Write-Host "Gathering image information for $($pe)" -ForegroundColor Cyan
+            $cluName = $cluInfo.name
+            # Get cluster storage container list for comparison
+            $strgList = peStrgList $pe
+            # Get registered PC, if there is one
+            try {
+                $pcReg = peRegisteredPC $pe
+                $pcRegUuid = $pcReg.clusterUuid
+                $pcRegName = $pcReg.clusterDetails.clusterName
+            } catch {
+                $pcRegUuid = ""
+                $pcRegName = ""
+            }
+            # Get list of images on the cluster
+            $imageList = peImageList $pe
+            # Get image owner list, to see if PC owns the image or local PE
+            $imageOwnerList = peImageOwnerList $pe
+            # Cycle through each image and check to see if it was pushed from PC and build object to write to report
+            foreach ($image in $imageList.entities) {
+                # Container section
+                $iscontainer = $false
+                foreach ($container in $strgList.entities) {
+                    if ($container.storage_container_uuid -eq $image.storage_container_uuid) {
+                        $imgStrgName = $container.name
+                        $iscontainer = $true
+                    }
                 }
-            }
-            if ($iscontainer -eq $false) {
-                $imgStrgName = ""
-            }
-            # Most other image settings
-            $imgName = $image.name
-            $imgDesc = $image.annotation
-            $imgType = $image.image_type
-            $imgState = $image.image_state
-            $imgUuid = $image.uuid
-            $imgSize = $image.vm_disk_size/1024/1024/1024
-            $imgDiskId = $image.vm_disk_id
-            $createUsecs = ($image.created_time_in_usecs).ToString()
-            $updatedUsecs = ($image.updated_time_in_usecs).ToString()
-            $imgCreateDate = (Get-Date 01.01.1970)+([System.TimeSpan]::fromseconds($createUsecs.SubString(0,10)))
-            $imgUpdatedDate = (Get-Date 01.01.1970)+([System.TimeSpan]::fromseconds($updatedUsecs.SubString(0,10)))
-            # Image owner section
-            foreach ($imgo in $imageOwnerList.group_results.entity_results) {
-                $imgoowner = $imgo.data[0].values.values
-                $imgouuid = $imgo.data[1].values.values
-                if (($imgUuid -eq $imgouuid) -and ($pcRegUuid -eq $imgoowner)) {
-                    $imgManagedBy = "PC"
-                    $imgPCname = $pcRegName
-                } elseif (($imgUuid -eq $imgouuid) -and ($pcRegUuid -ne $imgoowner)) {
-                    $imgManagedBy = "Local PE"
-                    $imgPCname = ""
+                if ($iscontainer -eq $false) {
+                    $imgStrgName = ""
                 }
+                # Most other image settings
+                $imgName = $image.name
+                $imgDesc = $image.annotation
+                $imgType = $image.image_type
+                $imgState = $image.image_state
+                $imgUuid = $image.uuid
+                $imgSize = [math]::round($image.vm_disk_size/1024/1024/1024,2)
+                $imgDiskId = $image.vm_disk_id
+                $createUsecs = ($image.created_time_in_usecs).ToString()
+                $updatedUsecs = ($image.updated_time_in_usecs).ToString()
+                $imgCreateDate = (Get-Date 01.01.1970)+([System.TimeSpan]::fromseconds($createUsecs.SubString(0,10)))
+                $imgUpdatedDate = (Get-Date 01.01.1970)+([System.TimeSpan]::fromseconds($updatedUsecs.SubString(0,10)))
+                # Image owner section
+                foreach ($imgo in $imageOwnerList.group_results.entity_results) {
+                    $imgoowner = $imgo.data[0].values.values
+                    $imgouuid = $imgo.data[1].values.values
+                    if (($imgUuid -eq $imgouuid) -and ($pcRegUuid -eq $imgoowner)) {
+                        $imgManagedBy = "PC"
+                        $imgPCname = $pcRegName
+                    } elseif (($imgUuid -eq $imgouuid) -and ($pcRegUuid -ne $imgoowner)) {
+                        $imgManagedBy = "Local PE"
+                        $imgPCname = ""
+                    }
+                }
+                # Object to write to Excel file
+                $imageInfo = [PSCustomObject]@{
+                    'Cluster Name' = $cluName
+                    'Image Name' = $imgName
+                    'Description' = $imgDesc
+                    'Storage Container' = $imgStrgName
+                    'Image Type' = $imgType
+                    'State' = $imgState
+                    'Managed By' = $imgManagedBy
+                    'PC Name' = $imgPCname
+                    'Size(GB)' = $imgSize
+                    'UUID' = $imgUuid
+                    'Created Date' = $imgCreateDate
+                    'Updated Date' = $imgUpdatedDate
+                    'VM Disk Id' = $imgDiskId
+                }
+                # Write image info to CSV report
+                $imageInfo | Export-Excel -Path "$filepath$ExcelFile" -AutoSize -TableName "Images" -TableStyle Medium15 -Numberformat 'Text' -WorksheetName "Images" -Append
             }
-            # Object to write to Excel file
-            $imageInfo = [PSCustomObject]@{
-                'Cluster Name' = $cluName
-                'Image Name' = $imgName
-                'Description' = $imgDesc
-                'Storage Container' = $imgStrgName
-                'Image Type' = $imgType
-                'State' = $imgState
-                'Managed By' = $imgManagedBy
-                'PC Name' = $imgPCname
-                'Size(GB)' = $imgSize
-                'UUID' = $imgUuid
-                'Created Date' = $imgCreateDate
-                'Updated Date' = $imgUpdatedDate
-                'VM Disk Id' = $imgDiskId
-            }
-            # Write image info to CSV report
-            $imageInfo | Export-Excel -Path "$filepath$ExcelFile" -AutoSize -TableName "Images" -TableStyle Medium15 -Numberformat 'Text' -WorksheetName "Images" -Append
+        } else {
+            Write-Host "Skipping $($pe) since it's not AHV" -ForegroundColor Cyan
         }
 }
 ############################## End Region - Functions ############################
